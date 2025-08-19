@@ -119,6 +119,23 @@ class radarSensor2 extends TuyaSpecificClusterDevice {
   onDeleted() {
     this.log('Radar sensor removed');
   }
+  // HOBEIAN ZG-204ZM
+{
+  model: 'ZG-204ZM',
+  vendor: 'HOBEIAN',
+  description: 'Zigbee gateway',
+  supports: 'On/Off, temperature, humidity',
+  fromZigbee: [fz.on_off, fz.temperature, fz.humidity],
+  toZigbee: [tz.on_off],
+  meta: { configureKey: 1 },
+  configure: async (device, coordinatorEndpoint, logger) => {
+    const endpoint = device.getEndpoint(1);
+    await bind(endpoint, coordinatorEndpoint, ['genOnOff', 'msTemperatureMeasurement', 'msRelativeHumidity']);
+    await configureReporting.onOff(endpoint);
+    await configureReporting.temperature(endpoint);
+    await configureReporting.humidity(endpoint);
+  },
+},
 }
 
 module.exports = radarSensor2;
