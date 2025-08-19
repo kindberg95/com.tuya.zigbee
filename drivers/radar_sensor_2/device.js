@@ -119,22 +119,118 @@ class radarSensor2 extends TuyaSpecificClusterDevice {
   onDeleted() {
     this.log('Radar sensor removed');
   }
-  // HOBEIAN ZG-204ZM
+// HOBEIAN ZG-204ZM - mmWave Presence Sensor
 {
-  model: 'ZG-204ZM',
-  vendor: 'HOBEIAN',
-  description: 'Zigbee gateway',
-  supports: 'On/Off, temperature, humidity',
-  fromZigbee: [fz.on_off, fz.temperature, fz.humidity],
-  toZigbee: [tz.on_off],
-  meta: { configureKey: 1 },
-  configure: async (device, coordinatorEndpoint, logger) => {
-    const endpoint = device.getEndpoint(1);
-    await bind(endpoint, coordinatorEndpoint, ['genOnOff', 'msTemperatureMeasurement', 'msRelativeHumidity']);
-    await configureReporting.onOff(endpoint);
-    await configureReporting.temperature(endpoint);
-    await configureReporting.humidity(endpoint);
-  },
+    model: 'ZG-204ZM',
+    vendor: 'HOBEIAN',
+    description: 'Battery powered PIR and mmWave presence sensor',
+    supports: 'Presence, motion state, illuminance, battery, and configuration',
+    fromZigbee: [
+        fz.battery, 
+        fz.illuminance, 
+        fz.ignore_occupancy_report, 
+        fz.ignore_presence_report,
+        (device, logger) => {
+            return {
+                hobeian_presence: {
+                    cluster: 'genAnalogInput',
+                    type: ['attributeReport', 'readResponse'],
+                    convert: (model, msg, publish, options, meta) => {
+                        const value = msg.data['presentValue'];
+                        if (value !== undefined) {
+                            return { presence: value > 0 };
+                        }
+                    },
+                },
+                hobeian_motion_state: {
+                    cluster: 'genMultistateInput',
+                    type: ['attributeReport', 'readResponse'],
+                    convert: (model, msg, publish, options, meta) => {
+                        const value = msg.data['presentValue'];
+                        const states = {0: 'none', 1: 'small', 2: 'large', 3: 'static'};
+                        return { motion_state: states[value] || 'unknown' };
+                    },
+                }
+            };
+        }
+    ],
+    toZigbee: [
+        tz.on_off,
+        (device, logger) => {
+            return {
+                fading_time: {
+                    key: ['fading_time'],
+                    convertSet: async (entity, key, value, meta) => {
+                        await entity.command('genAnalogOutput', 'writeAttributes', {
+                            'presentValue': value,
+                        }, { disableDefaultResponse: true });
+                        return { state: { fading_time: value } };
+                    },
+                },
+                motion_detection_sensitivity: {
+                    key: ['motion_detection_sensitivity'],
+                    convertSet: async (entity, key, value, meta) => {
+                        await entity.command('genAnalogOutput', 'writeAttributes', {
+                            'presentValue': value,
+                        }, { disableDefaultResponse: true });
+                        return { state: { motion_detection_sensitivity: value } };
+                    },
+                },
+                static_detection_distance: {
+                    key: ['static_detection_distance'],
+                    convertSet: async (entity, key, value, meta) => {
+                        await entity.command('genAnalogOutput', 'writeAttributes', {
+                            'presentValue': value,
+                        }, { disableDefaultResponse: true });
+                        return { state: { static_detection_distance: value } };
+                    },
+                },
+                indicator: {
+                    key: ['indicator'],
+                    convertSet: async (entity, key, value, meta) => {
+                        const indicatorValue = value === 'ON' ? 1 : 0;
+                        await entity.command('genBinaryOutput', 'writeAttributes', {
+                            'presentValue': indicatorValue,
+                        }, { disableDefaultResponse: true });
+                        return { state: { indicator: value } };
+                    },
+                },
+                illuminance_interval: {
+                    key: ['illuminance_interval'],
+                    convertSet: async (entity, key, value, meta) => {
+                        await entity.command('genAnalogOutput', 'writeAttributes', {
+                            'presentValue': value,
+                        }, { disableDefaultResponse: true });
+                        return { state: { illuminance_interval: value } };
+                    },
+                }
+            };
+        }
+    ],
+    exposes: [
+        e.presence(), 
+        e.battery(), 
+        e.illuminance(), 
+        e.illuminance_lux().withUnit('lx'),
+        e.numeric('fading_time', ea.STATE_SET).withDescription('Presence keep time in seconds').withUnit('s')
+            .withValueMin(0).withValueMax(28800),
+        e.numeric('motion_detection_sensitivity', ea.STATE_SET).withDescription('Motion detection sensitivity (0-19)')
+            .withValueMin(0).withValueMax(19),
+        e.numeric('static_detection_distance', ea.STATE_SET).withDescription('Static detection distance (0-10m)')
+            .withValueMin(0).withValueMax(10).withUnit('m'),
+        e.binary('indicator', ea.STATE_SET, 'ON', 'OFF').withDescription('LED indicator'),
+        e.numeric('illuminance_interval', ea.STATE_SET).withDescription('Illuminance sampling interval in minutes')
+            .withValueMin(1).withValueMax(720).withUnit('minutes'),
+    ],
+    meta: { battery: { voltageToPercentage: '3V_2500' } },
+    configure: async (device, coordinatorEndpoint, logger) => {
+        const endpoint = device.getEndpoint(1);
+        await bind(endpoint, coordinatorEndpoint, ['genPowerCfg', 'msIlluminanceMeasurement']);
+        await configureReporting.batteryVoltage(endpoint);
+        await configureReporting.batteryPercentageRemaining(endpoint);
+        await configureReporting.illuminance(endpoint);
+    },
+},
 },
 }
 
